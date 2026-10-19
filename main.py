@@ -17,7 +17,7 @@ app.add_middleware(
 # โหลดโมเดล YOLOv8
 model = YOLO("best.pt")
 
-# ตารางแมปข้อมูลระยะพัฒนาการ 7 ระยะ และพยากรณ์วันฟัก
+# ตารางแมปข้อมูลระยะพัฒนาการ 7 ระยะ และพยากรณ์วันฟักไข่
 STAGE_MAP = {
     "stage_1": {"name": "ระยะที่ 1: ไข่เริ่มปฏิสนธิ (สีส้ม/เขียวสด)", "days_left": 14},
     "stage_2": {"name": "ระยะที่ 2: ไข่เริ่มแบ่งเซลล์", "days_left": 12},
@@ -38,7 +38,7 @@ async def predict(file: UploadFile = File(...)):
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes))
         
-        # ประมวลผลด้วย YOLO (ตั้งค่า imgsz=640 เพื่อความรวดเร็วและแม่นยำ)
+        # รันโมเดล YOLO ด้วยความเร็วที่เหมาะสม (imgsz=640)
         results = model(image, imgsz=640, conf=0.25)
         
         detections = []
