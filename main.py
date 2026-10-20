@@ -20,7 +20,7 @@ app.add_middleware(
 # โหลดโมเดล YOLO
 model = YOLO("best.pt")
 
-# ตารางเงื่อนไขพยากรณ์วันฟัก (ล็อกถูกต้อง 100% ไม่มีอธิบายลักษณะไข่)
+# ตารางเงื่อนไขวันฟักที่ถูกต้องแม่นยำ 100% ตามที่คุณกำหนด
 STAGE_MAP = {
     "stage_1": {"name": "ระยะที่ 1", "hatch_forecast": "อีก 21 วัน"},
     "stage_2": {"name": "ระยะที่ 2", "hatch_forecast": "อีก 17 วัน"},
@@ -31,7 +31,6 @@ STAGE_MAP = {
     "stage_7": {"name": "ระยะที่ 7", "hatch_forecast": "อีก 2 วัน"},
 }
 
-# ป้องกัน Render Cold Start (สะกิดเซิร์ฟเวอร์ทุก 2 นาที)
 async def keep_alive():
     while True:
         await asyncio.sleep(120)
@@ -56,13 +55,12 @@ async def predict(file: UploadFile = File(...)):
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        # ประมวลผลภาพขนาดเล็ก 320px เพื่อความรวดเร็วสูงสุด
-        results = model(image, imgsz=320, conf=0.20, verbose=False)
+        # ปรับ imgsz เป็น 416 และลด conf เหลือ 0.10 เพื่อให้ AI จับตัวกุ้งได้แม่นยำ ไม่หลุดโฟกัส
+        results = model(image, imgsz=416, conf=0.10, verbose=False)
         
         best_detection = None
         highest_conf = 0.0
 
-        # ล็อกคัดเลือกเฉพาะกุ้งตัวหลักที่เด่นที่สุดเพียงตัวเดียวเท่านั้น (ตัดเงาสะท้อนออก)
         for result in results:
             boxes = result.boxes
             for box in boxes:
