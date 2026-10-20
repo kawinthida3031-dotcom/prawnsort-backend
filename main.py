@@ -20,51 +20,56 @@ app.add_middleware(
 # โหลดโมเดล YOLO
 model = YOLO("best.pt")
 
-# ตารางแมประยะพัฒนาการกุ้งฝอยและพยากรณ์วันฟัก
+# ตารางเงื่อนไขระยะพัฒนาการและพยากรณ์วันฟักที่ถูกต้องแม่นยำตามที่คุณกำหนด 100%
 STAGE_MAP = {
     "stage_1": {
-        "name": "ระยะที่ 1: ไข่เริ่มปฏิสนธิ (สีส้ม/เขียวสด)",
-        "days_left": 14,
+        "name": "ระยะที่ 1",
+        "hatch_forecast": "อีก 21 วัน",
     },
-    "stage_2": {"name": "ระยะที่ 2: ไข่เริ่มแบ่งเซลล์", "days_left": 12},
+    "stage_2": {
+        "name": "ระยะที่ 2",
+        "hatch_forecast": "อีก 17 วัน",
+    },
     "stage_3": {
-        "name": "ระยะที่ 3: เริ่มปรากฏจุดตา (Eye Spot)",
-        "days_left": 9,
+        "name": "ระยะที่ 3",
+        "hatch_forecast": "อีก 14 วัน",
     },
     "stage_4": {
-        "name": "ระยะที่ 4: ตาชัดเจน ตัวเริ่มเป็นรูปทรง",
-        "days_left": 6,
+        "name": "ระยะที่ 4",
+        "hatch_forecast": "อีก 11 วัน",
     },
-    "stage_5": {"name": "ระยะที่ 5: ตัวอ่อนเคลื่อนไหวในไข่", "days_left": 4},
-    "stage_6": {"name": "ระยะที่ 6: ไข่ใสพร้อมฟัก (1-2 วัน)", "days_left": 2},
+    "stage_5": {
+        "name": "ระยะที่ 5",
+        "hatch_forecast": "อีก 8 วัน",
+    },
+    "stage_6": {
+        "name": "ระยะที่ 6",
+        "hatch_forecast": "อีก 5 วัน",
+    },
     "stage_7": {
-        "name": "ระยะที่ 7: ระยะฟักเป็นตัวอ่อน (Hatching)",
-        "days_left": 0,
+        "name": "ระยะที่ 7",
+        "hatch_forecast": "อีก 2 วัน",
     },
 }
 
-
-# ฟังก์ชันป้องกัน Render Sleep (Self-Keep-Alive)
+# ระบบป้องกัน Cold Start (สะกิดเซิร์ฟเวอร์ไม่ให้หลับ ป้องกันอาการหน่วงเกิน 1 นาที)
 async def keep_alive():
   while True:
-    await asyncio.sleep(240)  # สะกิดตัวเองทุกๆ 4 นาที
+    await asyncio.sleep(180)
     try:
       async with httpx.AsyncClient() as client:
         await client.get("https://prawnsort-backend.onrender.com/ping")
     except Exception:
       pass
 
-
 @app.on_event("startup")
 async def startup_event():
   asyncio.create_task(keep_alive())
 
-
 @app.get("/")
 @app.get("/ping")
 def ping():
-  return {"status": "active", "server_time": time.time()}
-
+  return {"status": "active"}
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
@@ -72,8 +77,8 @@ async def predict(file: UploadFile = File(...)):
     image_bytes = await file.read()
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    # ประมวลผลด่วนด้วยขนาดภาพสเกล 416px
-    results = model(image, imgsz=416, conf=0.15, verbose=False)
+    # ปรับสเกล imgsz=320 เพื่อให้ประมวลผลได้อย่างรวดเร็วและแม่นยำสูงสุด
+    results = model(image, imgsz=320, conf=0.15, verbose=False)
 
     detections = []
     for result in results:
@@ -84,26 +89,19 @@ async def predict(file: UploadFile = File(...)):
         clean_key = raw_class.lower().strip()
 
         stage_info = STAGE_MAP.get(
-            clean_key, {"name": f"ระยะ: {raw_class}", "days_left": None}
+            clean_key,
+            {"name": f"ระยะ: {raw_class}", "hatch_forecast": "ไม่พบข้อมูล"},
         )
-
-        days_left = stage_info["days_left"]
-        if days_left is None:
-          forecast_str = "ไม่พบข้อมูล"
-        elif days_left == 0:
-          forecast_str = "ฟักตัววันนี้ / ภายใน 24 ชม."
-        else:
-          forecast_str = f"อีก {days_left} วัน"
 
         detections.append({
             "stage_name": stage_info["name"],
-            "hatch_forecast": forecast_str,
+            "hatch_forecast": stage_info["hatch_forecast"],
         })
 
     return {
-      "success": True,
-      "total_detected": len(detections),
-      "predictions": detections,
+        "success": True,
+        "total_detected": len(detections),
+        "predictions": detections,
     }
   except Exception as e:
     return {"success": False, "message": str(e)}
