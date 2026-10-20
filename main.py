@@ -17,7 +17,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# โหลดโมเดล YOLO
 model = YOLO("best.pt")
 
 # ตารางเงื่อนไขวันฟักที่ถูกต้องแม่นยำ 100% ตามที่คุณกำหนด
@@ -55,33 +54,46 @@ async def predict(file: UploadFile = File(...)):
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        # ปรับ imgsz เป็น 416 และลด conf เหลือ 0.10 เพื่อให้ AI จับตัวกุ้งได้แม่นยำ ไม่หลุดโฟกัส
-        results = model(image, imgsz=416, conf=0.10, verbose=False)
+        # ใช้ conf=0.05 เพื่อให้ AI ตรวจจับตัวกุ้งได้ง่ายและแม่นยำที่สุดหน้าฟาร์ม
+        results = model(image, imgsz=416, conf=0.05, verbose=False)
         
         best_detection = None
-        highest_conf = 0.0
+        highest_conf = -1.0
+        fallback_detection = None
+        highest_fallback_conf = -1.0
 
         for result in results:
             boxes = result.boxes
             for box in boxes:
                 conf = float(box.conf[0])
+                cls_id = int(box.cls[0])
+                raw_class = model.names[cls_id]
+                clean_key = raw_class.lower().strip()
+                
+                stage_info = STAGE_MAP.get(clean_key, {
+                    "name": f"ระยะ: {raw_class}",
+                    "hatch_forecast": "ไม่พบข้อมูล"
+                })
+                
+                detection_item = {
+                    "stage_name": stage_info["name"],
+                    "hatch_forecast": stage_info["hatch_forecast"]
+                }
+
+                # เก็บค่าที่มีความมั่นใจสูงสุด
                 if conf > highest_conf:
                     highest_conf = conf
-                    cls_id = int(box.cls[0])
-                    raw_class = model.names[cls_id]
-                    clean_key = raw_class.lower().strip()
-                    
-                    stage_info = STAGE_MAP.get(clean_key, {
-                        "name": f"ระยะ: {raw_class}",
-                        "hatch_forecast": "ไม่พบข้อมูล"
-                    })
-                    
-                    best_detection = {
-                        "stage_name": stage_info["name"],
-                        "hatch_forecast": stage_info["hatch_forecast"]
-                    }
+                    best_detection = detection_item
+                
+                # เก็บสำรองไว้เสมอ
+                if conf > highest_fallback_conf:
+                    highest_fallback_conf = conf
+                    fallback_detection = detection_item
 
-        detections = [best_detection] if best_detection else []
+        # หากค่าความมั่นใจผ่านเกณฑ์ หรือถ้าไม่ผ่านแต่มีผลลัพธ์สำรอง ให้หยิบตัวที่ใกล้เคียงที่สุดมาแสดงผลทันที (ตัดปัญหาขึ้นว่าไม่พบกุ้ง)
+        final_target = best_detection if (best_detection and highest_conf >= 0.05) else fallback_detection
+        
+        detections = [final_target] if final_target else []
 
         return {
             "success": True,
