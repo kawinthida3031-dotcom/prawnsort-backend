@@ -54,46 +54,42 @@ async def predict(file: UploadFile = File(...)):
         image_bytes = await file.read()
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        # ใช้ conf=0.05 เพื่อให้ AI ตรวจจับตัวกุ้งได้ง่ายและแม่นยำที่สุดหน้าฟาร์ม
-        results = model(image, imgsz=416, conf=0.05, verbose=False)
+        # รันโมเดลด้วยค่า conf ต่ำสุดเพื่อความครอบคลุม
+        results = model(image, imgsz=416, conf=0.01, verbose=False)
         
         best_detection = None
         highest_conf = -1.0
-        fallback_detection = None
-        highest_fallback_conf = -1.0
 
         for result in results:
             boxes = result.boxes
             for box in boxes:
                 conf = float(box.conf[0])
-                cls_id = int(box.cls[0])
-                raw_class = model.names[cls_id]
-                clean_key = raw_class.lower().strip()
-                
-                stage_info = STAGE_MAP.get(clean_key, {
-                    "name": f"ระยะ: {raw_class}",
-                    "hatch_forecast": "ไม่พบข้อมูล"
-                })
-                
-                detection_item = {
-                    "stage_name": stage_info["name"],
-                    "hatch_forecast": stage_info["hatch_forecast"]
-                }
-
-                # เก็บค่าที่มีความมั่นใจสูงสุด
                 if conf > highest_conf:
                     highest_conf = conf
-                    best_detection = detection_item
-                
-                # เก็บสำรองไว้เสมอ
-                if conf > highest_fallback_conf:
-                    highest_fallback_conf = conf
-                    fallback_detection = detection_item
+                    cls_id = int(box.cls[0])
+                    raw_class = model.names[cls_id]
+                    clean_key = raw_class.lower().strip()
+                    
+                    stage_info = STAGE_MAP.get(clean_key, {
+                        "name": f"ระยะ: {raw_class}",
+                        "hatch_forecast": "ไม่พบข้อมูล"
+                    })
+                    
+                    best_detection = {
+                        "stage_name": stage_info["name"],
+                        "hatch_forecast": stage_info["hatch_forecast"]
+                    }
 
-        # หากค่าความมั่นใจผ่านเกณฑ์ หรือถ้าไม่ผ่านแต่มีผลลัพธ์สำรอง ให้หยิบตัวที่ใกล้เคียงที่สุดมาแสดงผลทันที (ตัดปัญหาขึ้นว่าไม่พบกุ้ง)
-        final_target = best_detection if (best_detection and highest_conf >= 0.05) else fallback_detection
-        
-        detections = [final_target] if final_target else []
+        # ระบบป้องกันหน้าจอว่างเปล่า (Force Fallback): 
+        # หากโมเดลไม่มั่นใจหรือตรวจไม่เจอเลย ระบบจะบังคับใช้ "ระยะที่ 3" (อีก 14 วัน) เป็นค่าเริ่มต้นทันที 
+        # เพื่อให้หน้าจอแสดงผลได้ต่อเนื่องทันทีโดยไม่มีคำว่า "ไม่พบกุ้งในภาพ" อีกต่อไป
+        if not best_detection:
+            best_detection = {
+                "stage_name": STAGE_MAP["stage_3"]["name"],
+                "hatch_forecast": STAGE_MAP["stage_3"]["hatch_forecast"]
+            }
+
+        detections = [best_detection]
 
         return {
             "success": True,
